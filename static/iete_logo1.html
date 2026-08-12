@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    <style>
+    .body {
+    margin:0;
+    font-family: arial ;
+    }
+    .sidebar{
+    width:220px;
+    height:100vh;
+    background:#1e293b;
+    color:white;
+    padding:20px;
+    order : -1;
+    }
+    .nav-bar {
+    text-transform : capitalize;
+    font-size : 20px;
+    display :flex;
+    flex-direction : column;
+    justify-content : space-evenly;
+    gap : 20px;
+    }
+    .nav-item{
+    padding:12px;
+    border-radius:10px;
+    cursor:pointer;
+}
+
+.nav-item:hover{
+    background:#4f46e5;
+}
+ .container{
+        text-transform: capitalize;
+        display :flex;
+        flex-direction : row;
+        justify-content : space-evenly;
+        }
+    .main{
+        flex:1;
+        padding: 30px;
+        }
+   .layout{
+       display: flex;
+}
+.item{
+    background:#4f46e5;
+    color:white;
+    width:200px;
+    padding:20px;
+    border-radius:12px;
+    text-align:center;
+    font-size:20px;
+}
+.cal {
+        display: flex;
+        border radius :15px;
+        padding : 15px;
+     }
+
+    </style>
+</head>
+<body>
+<h3>HABIT TRACKER</h3>
+<div class="layout">
+
+<div class="main">
+<h1>GOOD MORNING {{USERNAME }}</h1>
+<div class="container">
+    <div class="item">completed today</div>
+     <div class="item">current streak</div>
+     <div class="item">total habit</div>
+
+</div>
+</div>
+
+<div class="sidebar">
+    <div class="nav-bar">
+     <div class ="nav-item">dashboard</div>
+        <div class ="nav-item">habit</div>
+         <div class ="nav-item">calender</div>
+         <div class ="nav-item">statistic</div>
+         <div class ="nav-item">logout</div>
+    </div>
+</div>
+</div>
+   <div class="cal">
+       <h3>{{month_name}} {{year}}</h3>
+       <table>
+       <tr>
+           <th>mon</th>
+            <th>tues</th>
+            <th>wed</th>
+             <th>thru</th>
+            <th>fri</th>
+            <th>sat</th>
+            <th>sun</th>
+       </tr>
+           {% for weeks in cal%}
+           <tr>
+               {% for day in weeks %}
+               <td>
+
+                   {% if day==0 %}
+                   &nbsp;
+                    {% else %}
+                    {{day}}
+                    {% endif %}
+               </td>
+               {% endfor %}
+           </tr>
+           {% endfor %}
+       </table>
+   </div>
+
+</body>
+</html>
