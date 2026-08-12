@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IETE Photo Watermark & Print</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 720px; margin: 30px auto; background:#111; color:#eee; padding: 0 15px; }
+  h1 { font-size: 1.4rem; }
+  p.hint { color:#999; font-size: 0.9rem; }
+  input[type=file] { margin: 10px 0; }
+  #stage { position: relative; display:inline-block; margin-top: 15px; max-width: 100%; touch-action:none; }
+  #stage img#photoPreview { max-width: 100%; display:block; user-select:none; -webkit-user-drag:none; }
+  #logoOverlay {
+    position: absolute; cursor: move; border: 1px dashed #0af; box-sizing:border-box;
+  }
+  #logoOverlay img#logoImg { width:100%; height:100%; display:block; pointer-events:none; -webkit-user-drag:none; }
+  #resizeHandle {
+    position:absolute; width:16px; height:16px; right:-8px; bottom:-8px;
+    background:#0af; cursor: nwse-resize; border-radius:3px;
+  }
+  button { margin-top: 15px; margin-right: 8px; padding: 8px 16px; cursor:pointer; font-size: 0.95rem; }
+  #resultBox { margin-top: 25px; }
+  #resultBox img { max-width: 100%; border: 1px solid #444; }
+</style>
+</head>
+<body>
+
+<h1>IETE Photo Watermark</h1>
+<p class="hint">Upload a photo, drag the logo to position it, drag the blue corner handle to resize it, then apply.</p>
+
+<input type="file" id="photoInput" accept="image/*">
+
+<div id="stage" style="display:none;">
+  <img id="photoPreview" src="" alt="preview">
+  <div id="logoOverlay">
+    <img id="logoImg" src="{{ url_for('static', filename='iete_logo.png') }}" alt="logo">
+    <div id="resizeHandle"></div>
+  </div>
+</div>
+
+<div>
+  <button id="applyBtn" style="display:none;">Apply Watermark</button>
+</div>
+
+<div id="resultBox"></div>
+
+<div id="finalActions" style="display:none; margin-top: 15px;">
+  <button id="printBtn">Print</button>
+  <a id="downloadLink" download><button type="button">Download</button></a>
+</div>
+
+<script>
+const photoInput   = document.getElementById("photoInput");
+const stage        = document.getElementById("stage");
+const photoPreview = document.getElementById("photoPreview");
+const logoOverlay  = document.getElementById("logoOverlay");
+const logoImg      = document.getElementById("logoImg");
+const resizeHandle = document.getElementById("resizeHandle");
+const applyBtn     = document.getElementById("applyBtn");
+const resultBox    = document.getElementById("resultBox");
+
+let photoFile = null;
+
+// ---- Make the logo's white background transparent, client-side, so the
+// drag/resize preview already shows it merging with the photo underneath
+// (same threshold+feather logic as the Python backend, so what you see
+// while dragging matches the final processed result). ----
+function makeLogoTransparent(imgUrl, threshold = 245, feather = 35) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = imageData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const brightness = Math.min(d[i], d[i + 1], d[i + 2]);
+        if (brightness >= threshold) {
+          d[i + 3] = 0;
+        } else if (brightness >= threshold - feather) {
+          const fadeRatio = (brightness - (threshold - feather)) / feather;
+          d[i + 3] = Math.round(d[i + 3] * (1 - fadeRatio));
+        }
+      }
+      ctx.putImageData(imageData, 0, 0);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = reject;
+    img.src = imgUrl;
+  });
+}
+
+// Swap the logo's src to the transparent version as soon as the page loads
+const originalLogoSrc = logoImg.src;
+makeLogoTransparent(originalLogoSrc)
+  .then((transparentDataUrl) => { logoImg.src = transparentDataUrl; })
+  .catch((err) => console.error("Could not make logo transparent client-side:", err));
+
+photoInput.addEventListener("change", (e) => {
+  photoFile = e.target.files[0];
+  if (!photoFile) return;
+
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    photoPreview.src = ev.target.result;
+    photoPreview.onload = () => {
+      stage.style.display = "inline-block";
+      applyBtn.style.display = "inline-block";
+
+      const w = photoPreview.clientWidth;
+      const h = photoPreview.clientHeight;
+      const logoW = w * 0.18;
+      logoOverlay.style.width  = logoW + "px";
+      logoOverlay.style.height = logoW + "px";
+      logoOverlay.style.left   = (w - logoW - 10) + "px";
+      logoOverlay.style.top    = (h - logoW - 10) + "px";
+    };
+  };
+  reader.readAsDataURL(photoFile);
+});
+
+// ---- Drag ----
+let dragging = false, dragStartX, dragStartY, startLeft, startTop;
+
+logoOverlay.addEventListener("mousedown", (e) => {
+  if (e.target === resizeHandle) return;
+  dragging = true;
+  dragStartX = e.clientX; dragStartY = e.clientY;
+  startLeft = logoOverlay.offsetLeft; startTop = logoOverlay.offsetTop;
+  e.preventDefault();
+});
+
+// ---- Resize ----
+let resizing = false, resizeStartX, resizeStartW;
+
+resizeHandle.addEventListener("mousedown", (e) => {
+  resizing = true;
+  resizeStartX = e.clientX;
+  resizeStartW = logoOverlay.offsetWidth;
+  e.preventDefault();
+  e.stopPropagation();
+});
+
+document.addEventListener("mousemove", (e) => {
+  if (dragging) {
+    const dx = e.clientX - dragStartX;
+    const dy = e.clientY - dragStartY;
+    let newLeft = Math.max(0, Math.min(startLeft + dx, photoPreview.clientWidth  - logoOverlay.offsetWidth));
+    let newTop  = Math.max(0, Math.min(startTop  + dy, photoPreview.clientHeight - logoOverlay.offsetHeight));
+    logoOverlay.style.left = newLeft + "px";
+    logoOverlay.style.top  = newTop + "px";
+  }
+  if (resizing) {
+    const dx = e.clientX - resizeStartX;
+    const newW = Math.max(20, resizeStartW + dx);
+    logoOverlay.style.width  = newW + "px";
+    logoOverlay.style.height = newW + "px";
+  }
+});
+
+document.addEventListener("mouseup", () => { dragging = false; resizing = false; });
+
+// ---- Submit to backend ----
+const finalActions  = document.getElementById("finalActions");
+const printBtn      = document.getElementById("printBtn");
+const downloadLink  = document.getElementById("downloadLink");
+let currentOutputUrl = null;
+
+applyBtn.addEventListener("click", async () => {
+  if (!photoFile) return;
+  applyBtn.disabled = true;
+  applyBtn.textContent = "Processing...";
+  finalActions.style.display = "none";
+
+  const stageW = photoPreview.clientWidth;
+  const stageH = photoPreview.clientHeight;
+
+  const logoXFrac     = logoOverlay.offsetLeft  / stageW;
+  const logoYFrac     = logoOverlay.offsetTop   / stageH;
+  const logoScaleFrac = logoOverlay.offsetWidth / stageW;
+
+  const formData = new FormData();
+  formData.append("photo", photoFile);
+  formData.append("logo_x", logoXFrac);
+  formData.append("logo_y", logoYFrac);
+  formData.append("logo_scale", logoScaleFrac);
+
+  try {
+    const res = await fetch("/process", { method: "POST", body: formData });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Server error ${res.status}: ${text}`);
+    }
+
+    const data = await res.json();
+
+    if (data.error) {
+      resultBox.innerHTML = `<p style="color:#f66;">${data.error}</p>`;
+    } else {
+      currentOutputUrl = data.output_url;
+      resultBox.innerHTML = `
+        <h3>Result</h3>
+        <img id="finalImage" src="${data.output_url}?t=${Date.now()}">
+      `;
+      downloadLink.href = data.output_url;
+      finalActions.style.display = "block";
+    }
+  } catch (err) {
+    // Show the REAL error instead of a generic message, so you can see
+    // exactly what failed (check the browser console too, F12).
+    resultBox.innerHTML = `<p style="color:#f66;">Failed: ${err.message}</p>`;
+    console.error(err);
+  }
+
+  applyBtn.disabled = false;
+  applyBtn.textContent = "Apply Watermark";
+});
+
+printBtn.addEventListener("click", () => {
+  if (!currentOutputUrl) return;
+  // Cloud server can't reach a physical printer -- so we open the
+  // final image in a new tab and hand off to the BROWSER's print
+  // dialog, which talks to whatever printer the user has locally.
+  const printWindow = window.open(currentOutputUrl, "_blank");
+  printWindow.onload = () => printWindow.print();
+});
+</script>
+
+</body>
+</html>
